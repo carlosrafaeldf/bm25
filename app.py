@@ -38,6 +38,57 @@ cv = TfidfVectorizer(stop_words=lista_stop_words, use_idf=True)
 count_matrix = cv.fit_transform(df_detalhes_materias["combinacao"])
 cosine_sim_normal = cosine_similarity(count_matrix)
 
+def get_lista_similares_tramitando_base_2(DataFrameCosine,DataFrameMaterias,CodigoMateria,DataFrameMateriasAlvo):
+    
+    indice = get_index_materia(DataFrameMaterias,CodigoMateria)    
+    similares = list(enumerate(DataFrameCosine[indice]))    
+    similares = sorted(similares, key=lambda x:x[1], reverse=True)        
+    df_similares = pd.DataFrame(similares, columns=['Indice', 'ValorSimilaridade'])    
+    df_similares = df_similares.set_index('Indice')    
+    DataFrameMaterias_filtrado = DataFrameMaterias.loc[df_similares.index]    
+    DataFrameMaterias_filtrado['ValorSimilaridade'] = df_similares['ValorSimilaridade']
+    # DataFrameMaterias_filtrado agora contém as linhas filtradas com a coluna de similaridade
+
+    #Filtra para conter apenas os valores contidos em DataFrameMateriasAlvo
+    condicao = DataFrameMaterias_filtrado['CodigoMateria'].isin(DataFrameMateriasAlvo['CodigoMateria'])
+    DataFrameMaterias_filtrado = DataFrameMaterias_filtrado[condicao]
+
+    #Filtra para conter apenas as matérias que começam com P
+    DataFrameMaterias_filtrado = DataFrameMaterias_filtrado[DataFrameMaterias_filtrado['Identificacao'].str.startswith('P')]
+
+    
+    materias = pd.DataFrame()
+    achou = 0;    
+    for indice, row in DataFrameMaterias_filtrado.iterrows():
+        codigo_materia_pesquisada = row["CodigoMateria"]            
+        #esta_tramitando = is_materia_tramitando(codigo_materia_pesquisada)
+        esta_tramitando = row["Tramitando"]
+        #print('Está:'+esta_tramitando)
+        if (esta_tramitando == "Sim"):             
+            #materias = materias.append(row)            
+            #print(pd.DataFrame(row).T)
+            materias = pd.concat([materias,pd.DataFrame(row).T])
+            achou = achou + 1    
+
+        if achou >= 5:            
+            break  
+    
+    materias = materias[materias['CodigoMateria'] != CodigoMateria]
+    return materias
+
+def get_sugestoes_parla_coseno(id):
+    df_interesses_parla = obter_dataframe_interesses_condicionado(id)
+    df_top_similares_cosseno = pd.DataFrame()    
+    for codigo_materia in df_interesses_parla.CodigoMateria:        
+        df_materia_pesquisada = df_detalhes_materias[df_detalhes_materias['CodigoMateria'] == codigo_materia]        
+        similares_pesquisadas = get_lista_similares_tramitando_base_2(cosine_sim_normal, df_detalhes_materias, codigo_materia, df_detalhes_materias)        
+        similares_pesquisadas = similares_pesquisadas[similares_pesquisadas['CodigoMateria'] != codigo_materia]        
+        df_top_similares_cosseno = pd.concat([df_top_similares_cosseno, similares_pesquisadas])        
+    #Elimina as duplicatas    
+    df_top_similares_cosseno = df_top_similares_cosseno.drop_duplicates(subset='CodigoMateria')
+
+    return df_top_similares_cosseno
+
 # Realizar merge entre df_interesses e df_detalhes_materias
 df_interesses = pd.merge(df_interesses, df_detalhes_materias, on='CodigoMateria')
 df_interesses = pd.merge(df_interesses, df_senadores, on='CodigoParlamentar')
@@ -309,7 +360,8 @@ def pagina_inicial():
 def pagina_detalhes(id):
     senador = obter_dataframe_senadores()[obter_dataframe_senadores()['CodigoParlamentar'] == id].to_dict(orient='records')[0]    
     #sugestoes_para_senador = obter_dataframe_sugestoes()[(obter_dataframe_sugestoes()['CodigoParlamentar'] == id)].head(12).to_dict(orient='records')
-    df_retorno = obter_dataframe_sugestoes()[(obter_dataframe_sugestoes()['CodigoParlamentar'] == id)]
+    
+    df_retorno = get_sugestoes_parla_coseno(id)
     df_retorno = df_retorno.replace({np.nan: None})
     df_retorno = df_retorno.head(12).to_dict(orient='records')
     ##sugestoes_para_senador = obter_dataframe_sugestoes()[(obter_dataframe_sugestoes()['CodigoParlamentar'] == id) & (obter_dataframe_sugestoes()['prioridade'] == 'Não')].head(12).to_dict(orient='records')
